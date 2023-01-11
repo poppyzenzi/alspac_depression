@@ -32,8 +32,6 @@ rm(list=setdiff(ls(), c("data", "bkup")))
 
 
 ```{r}
-
-
 #a script for generating smfq scores from alspac data and running GMM
 #set working directory to datastore
 setwd("/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/gmm")
@@ -252,8 +250,8 @@ dataSmfq
 ```{r}
 'read in saved df'
 
-dataSmfq <- read.csv()
-
+dataSmfq <- read.csv('../gmm_alspac/dataSmfq.csv', stringsAsFactors=FALSE, sep = 't', quote = '')
+#csv is likely corrupt, as variable names are too long below 
 ```
 
 ```{r}
@@ -395,13 +393,45 @@ ggplot(labelled_data, aes(x=age, y=y, color=as.factor(class)))  +
 ```{r}
 're-running with only first 4 time points'
 
+library(lcmm)
+
+'re-doing for age 9-14 to compare with ABCD data release 4.0'
+
+df2 <- subset(df, age < 15)
 
 
-df2 <- df %>%
-  subset(df, Name != "Steve")
+set.seed(2002)
+
+lcga1 <- hlme(y ~ time, subject = "Subject", ng = 1, data = df2)
+lcga2 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 2, data = df2, mixture = ~ time))
+lcga3 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 3, data = df2, mixture = ~ time))
+lcga4 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 4, data = df2, mixture = ~ time))
+lcga5 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 5, data = df2, mixture = ~ time))
+
+summarytable(lcga1, lcga2, lcga3, lcga4)
 
 ```
 
+
+```{r}
+Subject = array(lcga5$pprob$Subject)
+class = array(lcga5$pprob$class)
+new_df = tibble(Subject,class)
+labelled_data <- merge(df2, new_df, by = "Subject")
+
+#re-ordering for legend plotting order
+#labelled_data$class <- factor(labelled_data$class, levels = c("2", "1", "3", "4", "5"))
+
+ggplot(labelled_data, aes(x=age, y=y, color=as.factor(class)))  + 
+  geom_smooth() + 
+  labs(color='Trajectory', x="Age (years)", y='Depression (SMFQ score)') +
+  scale_x_continuous(limits=c(9,15), breaks = seq(9,15, by = 2)) + 
+  scale_color_brewer(labels = c("late-onset high", "persistent high", "adolescent peak", "non-depressed", "late-onset low"), palette = "Dark2")
+```
 
 
 
