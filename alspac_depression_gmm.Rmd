@@ -1,0 +1,415 @@
+---
+title: "ALSPAC SMFQ scores"
+author: "Poppy Z. Grimes"
+date: "2022-12-12"
+output: html_document
+---
+
+
+```{r}
+library(car)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(gridExtra)
+library(haven)
+library(labelled)
+library(lme4)
+# library(lmtest)
+library(mosaic)
+library(nlme)
+library(purrr)
+library(RNOmni)
+library(stringr)
+library(stringi)
+library(tableone)
+library(tibble)
+library(tidyr)
+
+rm(list=setdiff(ls(), c("data", "bkup")))
+
+```
+
+
+```{r}
+
+
+#a script for generating smfq scores from alspac data and running GMM
+#set working directory to datastore
+setwd("/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/gmm")
+
+# ----------------------------------------
+# Read in stata format data (.dta file)
+# This takes a wee while... and need to be connected to VPN and Datastore server.
+data <- read_dta("/Volumes/cmvm/scs/groups/ALSPAC/data/B3421_Whalley_04Nov2021.dta")
+bkup <- data
+```
+
+
+```{r}
+## Some useful haven functions:
+
+# Get the labels for the col names
+vars <- var_label(data)
+# Get labels of values for each variable, e.g. consent withdrawn = -9999
+val_labels(data)
+
+vars[str_detect(names(vars), "f9sa010")]  #name of a specific variable
+vars[str_detect(vars, "Infection")]  
+
+bkup$f9sa011
+bkup$f9sa010
+# ----------------------------------------
+# Create subject variable
+data <- data %>%
+        unite("Subject", c(cidB3421, qlet))
+
+```
+
+
+```{r}
+# Calculate depression scores and total number of depressive episodes
+# Calculate depression scores for each age group
+
+#first creating list of all variables to prep for recoding 
+#13 variables at each time point
+mfq_t1Vars <- c("fddp110", "fddp112", "fddp113", "fddp114", "fddp115", "fddp116", "fddp118", "fddp119", "fddp121", "fddp122", "fddp123", "fddp124", "fddp125")
+mfq_t2Vars <- c("ff6500", "ff6502", "ff6503", "ff6504", "ff6505", "ff6506", "ff6508", "ff6509", "ff6511", "ff6512", "ff6513", "ff6514", "ff6515")
+mfq_t3Vars <- c("fg7210", "fg7212", "fg7213", "fg7214", "fg7215", "fg7216", "fg7218", "fg7219", "fg7221", "fg7222", "fg7223", "fg7224", "fg7225")
+mfq_t4Vars <- c("ccs4500", "ccs4502" ,"ccs4503", "ccs4504", "ccs4505", "ccs4506", "ccs4508", "ccs4509", "ccs4511", "ccs4512", "ccs4513", "ccs4514", "ccs4515")
+mfq_t5Vars <- c("CCXD900", "CCXD902" ,"CCXD903", "CCXD904", "CCXD905", "CCXD906" ,"CCXD908", "CCXD909", "CCXD911", "CCXD912", "CCXD913", "CCXD914", "CCXD915")
+mfq_t6Vars <- c("cct2700", "cct2701", "cct2702", "cct2703", "cct2704" ,"cct2705" ,"cct2706", "cct2707", "cct2708", "cct2709", "cct2710", "cct2711", "cct2712")
+mfq_t7Vars <- c("YPA2000", "YPA2010", "YPA2020", "YPA2030", "YPA2040", "YPA2050", "YPA2060", "YPA2070", "YPA2080", "YPA2090", "YPA2100", "YPA2110", "YPA2120")
+
+# coded differently: 1 should be 0, 2 should be 1 and 3 should be 2.
+mfq_t8Vars <- c("YPB5000" ,"YPB5010" ,"YPB5030" ,"YPB5040" ,"YPB5050", "YPB5060", "YPB5080", "YPB5090", "YPB5100", "YPB5120", "YPB5130", "YPB5150" ,"YPB5170")
+mfq_t9Vars <- c("YPC1650", "YPC1651", "YPC1653" ,"YPC1654", "YPC1655", "YPC1656", "YPC1658", "YPC1659", "YPC1660", "YPC1662", "YPC1663", "YPC1665", "YPC1667")
+
+# coded correctly:
+mfq_t10Vars <- c("YPE4080", "YPE4082", "YPE4083", "YPE4084", "YPE4085", "YPE4086", "YPE4088", "YPE4089", "YPE4091", "YPE4092", "YPE4093", "YPE4094", "YPE4095")
+mfq_t11Vars <- c("covid4yp_4050", "covid4yp_4051", "covid4yp_4052", "covid4yp_4053", "covid4yp_4054",
+                 "covid4yp_4055", "covid4yp_4056", "covid4yp_4057", "covid4yp_4058", "covid4yp_4059",  "covid4yp_4060", "covid4yp_4061", "covid4yp_4062" )
+
+
+mfqAllVars <- list("mfq_t01" = mfq_t1Vars, "mfq_t02" = mfq_t2Vars, "mfq_t03" = mfq_t3Vars,
+                   "mfq_t04" = mfq_t4Vars, "mfq_t05" = mfq_t5Vars, "mfq_t06" = mfq_t6Vars,
+                   "mfq_t07" = mfq_t7Vars)
+```
+
+
+```{r}
+# -------
+# Check if there are any participants where consent is not given for the depression questions:
+lapply(list(mfq_t1Vars, mfq_t2Vars, mfq_t3Vars, mfq_t4Vars, mfq_t5Vars,
+            mfq_t6Vars, mfq_t7Vars, mfq_t8Vars, mfq_t9Vars, mfq_t10Vars, mfq_t11Vars), 
+       function(timepoint){
+         sapply(timepoint, 
+                function(var){
+                  sum(data[, var ] == -9999, na.rm = T)
+                })
+       })
+# No, anyone who has not given consent is already not in our data
+# -------
+```
+
+
+```{r}
+# Calculate smfq scores:
+#vars 1-7
+smfq <- lapply(mfqAllVars, function(varsList){
+  SMFQ <- data %>%
+    mutate_at(vars(varsList), funs(dplyr::recode(., `3`="0",
+                                          `2`="1",
+                                          `1`="2"))) %>%
+    mutate_at(vars(varsList), funs(as.numeric(.))) %>%
+    dplyr::select( all_of(varsList) ) %>%
+    dplyr::mutate(sum = rowSums(across(where(is.numeric)))) %>%
+    dplyr::select(sum) 
+  return(SMFQ)
+})
+
+#dataframe with smfq columns bound
+smfqDf <- do.call(cbind, smfq) 
+colnames(smfqDf) <- names(mfqAllVars)
+
+#original dataset with mfq columns added 
+#this will be used for GMM (subject, age, visit, mfq)
+dataSmfq <- cbind(data, smfqDf)
+
+
+# Reverse score of *_t8 and *_t9
+mfqRevVars <- list("mfq_t08" = mfq_t8Vars, "mfq_t09" = mfq_t9Vars)
+
+smfq <- lapply(mfqRevVars, function(varsList){
+  SMFQ <- data %>%
+    mutate_at(vars(varsList), funs(recode(., `3`="2",
+                                          `2`="1",
+                                          `1`="0"))) %>%
+    mutate_at(vars(varsList), funs(as.numeric(.))) %>%
+    select(varsList) %>%
+    mutate(sum = rowSums(across(where(is.numeric)))) %>%
+    dplyr::select(sum) 
+  return(SMFQ)
+})
+
+smfqDf <- do.call(cbind, smfq) 
+colnames(smfqDf) <- names(mfqRevVars)
+
+dataSmfq <- cbind(dataSmfq, smfqDf)
+
+# Correct score, vars 10 and 11
+mfqCorVars <- list("mfq_t10" = mfq_t10Vars, "mfq_t11" = mfq_t11Vars)
+
+smfq <- lapply(mfqCorVars, function(varsList){
+  SMFQ <- data %>%
+    mutate_at(vars(varsList), funs(recode(., `2`="2",
+                                          `1`="1",
+                                          `0`="0"))) %>%
+    mutate_at(vars(varsList), funs(as.numeric(.))) %>%
+    select(varsList) %>%
+    mutate(sum = rowSums(across(where(is.numeric)))) %>%
+    select(sum) 
+  return(SMFQ)
+})
+
+smfqDf <- do.call(cbind, smfq) 
+colnames(smfqDf) <- names(mfqCorVars)
+
+dataSmfq <- cbind(dataSmfq, smfqDf)
+
+tail(colnames(dataSmfq))
+head(dataSmfq[,3770:ncol(dataSmfq)])
+
+
+#dataSmfq is completed dataframe with mfq columns added
+
+```
+
+```{r}
+# Calculate n, mean, sd, median and IQR and % of people with score >= 11
+timePoint <- c("mfq_t01", "mfq_t02", "mfq_t03", "mfq_t04", "mfq_t05", "mfq_t06", "mfq_t07", "mfq_t08", "mfq_t09", "mfq_t10", "mfq_t11")
+
+occasions <- c(1,3,5,7,8,9,10,11,12,14,16)
+
+SmfqDescStatsAll <- lapply(1:length(timePoint), function(i){
+  Occasion <- occasions[i]
+  Sample_Size <- sum(!is.na(dataSmfq[,timePoint[i] ]))
+  responses <- dataSmfq[, timePoint[i] ][ !is.na(dataSmfq[, timePoint[i] ] ) ]
+  SMFQ_Mean <- mean(responses)
+  SMFQ_SD <- sd(responses)
+  SMFQ_Median <- median(responses)
+  SMFQ_IQR <- iqr(responses)
+  #Above_Threshold <- sum(responses >= 11)/Sample_Size*100 (not including in analysis)
+  SmfqDescStats <- data.frame(Occasion, Sample_Size, SMFQ_Mean, SMFQ_SD, SMFQ_Median, SMFQ_IQR)
+  return(SmfqDescStats)
+})
+SmfqDescStatsAll <- do.call(rbind, SmfqDescStatsAll)
+SmfqDescStatsAll
+write.csv(SmfqDescStatsAll, "SMFQ_Descriptive_Statistics.csv", row.names = F)
+
+'line to save Smfq so dont have to re-load from datastore each time'
+
+write.csv(dataSmfq, "dataSmfq.csv", row.names = F)
+
+dataSmfq
+
+# ----------------------------------------
+```
+
+
+```{r}
+
+#inspect missing and impute 
+library(mice)
+library(VIM)
+
+#dataframe of mfq only
+smfqDf <- dataSmfq %>% subset(select = c(mfq_t01:mfq_t11))
+
+
+#only want to do this when have one varible for mfq total
+#md.pattern(smfqDf)
+
+aggr_plot <- aggr(smfqDf, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, 
+                  labels=names(smfqDf), cex.axis=.8, gap=3, ylab=c("missing data","Pattern"))
+
+marginplot(smfqDf[c(1,2)])
+
+#impute data using mice package, use predictorMatrix attribute
+#imputed_df <- mice(smfqDf, m=5, maxit=50, meth='pmm', seed=500)
+
+#summary(imputed_df)
+#completed_df <- complete(imputed_df,1)
+
+#xyplot(imputed_df,y ~ ID+time,pch=18,cex=1)
+#problem here that we have two sets of columns, imputed and non imputed
+#dataSmfq <- cbind(dataSmfq, completed_df)
+
+dataSmfq
+```
+
+
+```{r}
+'read in saved df'
+
+dataSmfq <- read.csv()
+
+```
+
+```{r}
+#------
+dataVars <- c("Subject" = "Subject", # Unique pregnancy identifier for Heather Whalley(ACGDEHFB)
+              "Sex" = "kz021", # Participant sex
+              "Ethnicity" = "c804", # Child ethnic background
+              # MFQ scores:
+               "mfq_t01", "mfq_t02", "mfq_t03", "mfq_t04", "mfq_t05",
+               "mfq_t06", "mfq_t07", "mfq_t08", "mfq_t09", "mfq_t10","mfq_t11",
+              # age at appointments for 7 and 9 years:
+               #"age_F07" = "f7003c",
+               #"age_F09" = "f9003c",
+               # age at attendance (months):
+               "age_t01" = "fd003c", # depression only
+               "age_t02" = "ff0011a",# PLE and depression (age 12)
+               "age_t03" = "fg0011a",# depression only
+               "age_t04"= "ccs9991a",# depression and PLE (age 16)
+               "age_t05"= "CCXD006",# depression and PLE (age 17/18)
+               "age_t06" = "cct9991a",# depression only
+               "age_t07" = "YPA9020",# depression and PLE (age 21)
+               "age_t08" = "YPB9992",# depression only
+               "age_t09" = "YPC2650",# depression only
+               "age_t10" = "YPE9660",# depression only
+               "age_t11" = "covid4yp_9650" # age in years
+           )
+
+
+#make a new dataframe with only columns needed for gmm
+
+  #abcd vars: 'Subjectkey', 'kz021', 'cbcl_scr_dsm5_depress_r', 'interview_age', 'sex'))
+
+dataSub <- dataSmfq %>% 
+            dplyr::select(all_of(dataVars))
+
+#dataSub <- cbind(dataSub, completed_df)
+dataSub
+#need to remove age values where special codes and also convert to months 
+
+#now we have a dataframe with ages and mfq scores, need to concatenate age01 with mfq01, etc
+```
+
+
+```{r}
+dataSubQC <- dataSub %>%
+  mutate(`Sex` = dplyr::recode(`Sex`,
+                                    `2`="1",
+                                    `1`="0")) %>%
+
+# Ethnicity: (0 = "white" 1 = "non-white")
+  mutate(`Ethnicity` = dplyr::recode(`Ethnicity`,
+                              `1`="0",
+                              `2`="1")) %>%
+
+# Remove negative coding from age variables
+  mutate_at(vars(c("age_t01", "age_t02", "age_t03", "age_t04", "age_t05",
+           "age_t06", "age_t07", "age_t08", "age_t09", "age_t10", "age_t11")),
+           funs(replace(., which(. <= 0), NA))) %>%  #here remove dplyr::
+# Convert age from months to years
+  mutate_at(vars(c("age_t01", "age_t02", "age_t03", "age_t04", "age_t05",
+                   "age_t06", "age_t07", "age_t08", "age_t09", "age_t10")),
+            funs(./12)) %>%
+  mutate("age_t11" = as.numeric(age_t11)) 
+
+dataSubQC
+```
+
+
+```{r}
+
+#make a data frame which aligns age and smfq score 
+#data is currently in wide format, need to convert to long
+
+data_wide <- dataSubQC
+
+data_long <- reshape(data_wide, idvar="Subject", direction="long", 
+             varying=list(age=c(15,16,17,18,19,20,21,22,23,24,25), score=c(4,5,6,7,8,9,10,11,12,13,14)),
+             v.names = c("age", "y"))
+
+df <- data_long
+
+```
+
+
+
+```{r}
+
+#making subjects unique and numeric
+df$Subject <- as.numeric(factor(df$Subject, 
+                  levels=unique(df$Subject)))
+
+#should be 15,645 values, check
+summary(df)
+
+```
+
+
+```{r}
+#mfinds class enumeration, build ML models using that number of classes, before that need to select features 
+"LCGA"
+
+library(lcmm)
+
+set.seed(2002)
+
+lcga1 <- hlme(y ~ time, subject = "Subject", ng = 1, data = df)
+lcga2 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 2, data = df, mixture = ~ time))
+lcga3 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 3, data = df, mixture = ~ time))
+lcga4 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 4, data = df, mixture = ~ time))
+lcga5 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 5, data = df, mixture = ~ time))
+lcga6 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+                    subject = "Subject", ng = 6, data = df, mixture = ~ time))
+
+summarytable(lcga1, lcga2, lcga3, lcga4, lcga5, lcga6)
+
+#address class imbalance with SMOTE
+```
+
+```{r}
+Subject = array(lcga5$pprob$Subject)
+class = array(lcga5$pprob$class)
+new_df = tibble(Subject,class)
+labelled_data <- merge(df, new_df, by = "Subject")
+
+#re-ordering for legend plotting order
+#labelled_data$class <- factor(labelled_data$class, levels = c("2", "1", "3", "4", "5"))
+
+ggplot(labelled_data, aes(x=age, y=y, color=as.factor(class)))  + 
+  geom_smooth() + 
+  labs(color='Trajectory', x="Age (years)", y='Depression (SMFQ score)') +
+  scale_x_continuous(limits=c(9,25), breaks = seq(9,25, by = 2)) + 
+  scale_color_brewer(labels = c("late-onset high", "persistent high", "adolescent peak", "non-depressed", "late-onset low"), palette = "Dark2")
+```
+
+```{r}
+'re-running with only first 4 time points'
+
+
+
+df2 <- df %>%
+  subset(df, Name != "Steve")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
