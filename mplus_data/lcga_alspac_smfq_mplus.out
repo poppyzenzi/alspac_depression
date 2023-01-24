@@ -1,0 +1,50 @@
+Mplus VERSION 8.8 DEMO (Mac)
+MUTHEN & MUTHEN
+01/13/2023   5:23 PM
+
+INPUT INSTRUCTIONS
+
+  title: latent class analysis
+  for wide format
+  alspac depression data
+
+  data:
+      file is alspac_smfq_wide.txt;
+
+  variable:
+      names are Subject Sex mfq_t01 mfq_t02 mfq_t03 mfq_t04
+      mfq_t05 mfq_t06 mfq_t07 mfq_t08 mfq_t09 mfq_t10 mfq_t11
+      age_t01 age_t02 age_t03 age_t04 age_t05 age_t06 age_t07
+      age_t08 age_t09 age_t10 age_t11;
+      missing are all (99);
+      usevariables are mfq_t01 mfq_t02 mfq_t03 mfq_t04
+      mfq_t05 mfq_t06 mfq_t07 mfq_t08 mfq_t09 mfq_t10 mfq_t11;
+      classes = c (4);
+
+  analysis: type = mixture;
+
+  output: tech11 tech14;
+
+
+DEMO VERSION MAXIMUM EXCEEDED
+  Maximum number of dependent variables has been exceeded.
+  Number of dependent variables in the model: 11
+
+
+Mplus VERSION 8.8 DEMO (Mac) has the following limitations:
+  Maximum number of dependent variables: 6
+  Maximum number of independent variables: 2
+  Maximum number of between variables: 2
+  Maximum number of continuous latent variables in time series analysis: 2
+
+
+MUTHEN & MUTHEN
+3463 Stoner Ave.
+Los Angeles, CA  90066
+
+Tel: (310) 391-9971
+Fax: (310) 391-8971
+Web: www.StatModel.com
+Support: Support@StatModel.com
+
+Copyright (c) 1998-2022 Muthen & Muthen
