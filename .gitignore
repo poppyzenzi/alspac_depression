@@ -3,3 +3,8 @@
 
 .dataSmfq.csv
 /mplus_data/dataframes
+
+mplus_data/lcga_alspac_smfq_mplus.out 
+dataSmfq.dat
+mplus_data/alspac_smfq_wide.txt
+mplus_data/lcga_alspac_smfq_mplus~MTR2.out

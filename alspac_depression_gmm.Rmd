@@ -5,6 +5,21 @@ date: "2022-12-12"
 output: html_document
 ---
 
+***
+
+This is a script for use with ALSPAC depression data which:
+
+1) First, calculates a total score for SMFQ for each individual
+
+2) Second, reshapes the data to perform latent class analysis in MPlus
+
+or...
+
+3) Third, performs LCGA analysis to enumerate classes based on SMFQ scores
+
+Ideally this will be split into two scripts at a later stage. 
+
+***
 
 ```{r}
 library(car)
@@ -15,7 +30,7 @@ library(gridExtra)
 library(haven)
 library(labelled)
 library(lme4)
-# library(lmtest)
+library(lmtest)
 library(mosaic)
 library(nlme)
 library(purrr)
@@ -32,17 +47,17 @@ rm(list=setdiff(ls(), c("data", "bkup")))
 
 
 ```{r}
-#a script for generating smfq scores from alspac data and running GMM
-#set working directory to datastore
+#This script for generating smfq scores from alspac data and running GMM using lcmm package
+#SMFQ scores are adapted from https://github.com/AmeliaES/ALSPAC_inflam_2022/tree/main/Data_prep/Scripts
+
+#set working directory
 setwd("/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/gmm")
 
-# ----------------------------------------
-# Read in stata format data (.dta file)
-# This takes a wee while... and need to be connected to VPN and Datastore server.
+
+#Read in .dta file (connected to VPN)
 data <- read_dta("/Volumes/cmvm/scs/groups/ALSPAC/data/B3421_Whalley_04Nov2021.dta")
 bkup <- data
 ```
-
 
 ```{r}
 ## Some useful haven functions:
@@ -61,7 +76,6 @@ bkup$f9sa010
 # Create subject variable
 data <- data %>%
         unite("Subject", c(cidB3421, qlet))
-
 ```
 
 
@@ -134,7 +148,6 @@ colnames(smfqDf) <- names(mfqAllVars)
 #this will be used for GMM (subject, age, visit, mfq)
 dataSmfq <- cbind(data, smfqDf)
 
-
 # Reverse score of *_t8 and *_t9
 mfqRevVars <- list("mfq_t08" = mfq_t8Vars, "mfq_t09" = mfq_t9Vars)
 
@@ -180,10 +193,11 @@ head(dataSmfq[,3770:ncol(dataSmfq)])
 
 
 #dataSmfq is completed dataframe with mfq columns added
-
 ```
 
+
 ```{r}
+## Making table of descriptive statistics
 # Calculate n, mean, sd, median and IQR and % of people with score >= 11
 timePoint <- c("mfq_t01", "mfq_t02", "mfq_t03", "mfq_t04", "mfq_t05", "mfq_t06", "mfq_t07", "mfq_t08", "mfq_t09", "mfq_t10", "mfq_t11")
 
@@ -205,25 +219,25 @@ SmfqDescStatsAll <- do.call(rbind, SmfqDescStatsAll)
 SmfqDescStatsAll
 write.csv(SmfqDescStatsAll, "SMFQ_Descriptive_Statistics.csv", row.names = F)
 
-'line to save Smfq so dont have to re-load from datastore each time'
 
-write.csv(dataSmfq, "dataSmfq.csv", row.names = F)
-
-dataSmfq
-
-# ----------------------------------------
+#saving Smfq so no need to reload from datastore if lose VPN connection
+write_dta(dataSmfq, "dataSmfq.dat")
 ```
 
 
 ```{r}
+#read in saved data
+dataSmfq <- read_dta('/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/gmm/gmm_alspac/dataSmfq.dat')
+```
 
-#inspect missing and impute 
+
+```{r}
+#inspect missing data if you want to impute [or skip this]
 library(mice)
 library(VIM)
 
 #dataframe of mfq only
 smfqDf <- dataSmfq %>% subset(select = c(mfq_t01:mfq_t11))
-
 
 #only want to do this when have one varible for mfq total
 #md.pattern(smfqDf)
@@ -234,28 +248,22 @@ aggr_plot <- aggr(smfqDf, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE,
 marginplot(smfqDf[c(1,2)])
 
 #impute data using mice package, use predictorMatrix attribute
-#imputed_df <- mice(smfqDf, m=5, maxit=50, meth='pmm', seed=500)
+imputed_df <- mice(smfqDf, m=5, maxit=50, meth='pmm', seed=500)
 
-#summary(imputed_df)
-#completed_df <- complete(imputed_df,1)
+summary(imputed_df)
+completed_df <- complete(imputed_df,1)
 
-#xyplot(imputed_df,y ~ ID+time,pch=18,cex=1)
+xyplot(imputed_df,y ~ ID+time,pch=18,cex=1)
+
 #problem here that we have two sets of columns, imputed and non imputed
 #dataSmfq <- cbind(dataSmfq, completed_df)
-
-dataSmfq
 ```
 
 
 ```{r}
-'read in saved df'
+#creating named variables
+#make a new dataframe with only columns needed for gmm
 
-dataSmfq <- read.csv('../gmm_alspac/dataSmfq.csv', stringsAsFactors=FALSE, sep = 't', quote = '')
-#csv is likely corrupt, as variable names are too long below 
-```
-
-```{r}
-#------
 dataVars <- c("Subject" = "Subject", # Unique pregnancy identifier for Heather Whalley(ACGDEHFB)
               "Sex" = "kz021", # Participant sex
               "Ethnicity" = "c804", # Child ethnic background
@@ -279,23 +287,19 @@ dataVars <- c("Subject" = "Subject", # Unique pregnancy identifier for Heather W
                "age_t11" = "covid4yp_9650" # age in years
            )
 
-
-#make a new dataframe with only columns needed for gmm
-
-  #abcd vars: 'Subjectkey', 'kz021', 'cbcl_scr_dsm5_depress_r', 'interview_age', 'sex'))
-
+#new dataframe with subset of only vars needed 
 dataSub <- dataSmfq %>% 
             dplyr::select(all_of(dataVars))
 
+#use this to bind with imputed data 
 #dataSub <- cbind(dataSub, completed_df)
 dataSub
-#need to remove age values where special codes and also convert to months 
-
-#now we have a dataframe with ages and mfq scores, need to concatenate age01 with mfq01, etc
 ```
 
 
 ```{r}
+#Quality control
+
 dataSubQC <- dataSub %>%
   mutate(`Sex` = dplyr::recode(`Sex`,
                                     `2`="1",
@@ -310,52 +314,106 @@ dataSubQC <- dataSub %>%
   mutate_at(vars(c("age_t01", "age_t02", "age_t03", "age_t04", "age_t05",
            "age_t06", "age_t07", "age_t08", "age_t09", "age_t10", "age_t11")),
            funs(replace(., which(. <= 0), NA))) %>%  #here remove dplyr::
+  
 # Convert age from months to years
   mutate_at(vars(c("age_t01", "age_t02", "age_t03", "age_t04", "age_t05",
                    "age_t06", "age_t07", "age_t08", "age_t09", "age_t10")),
             funs(./12)) %>%
   mutate("age_t11" = as.numeric(age_t11)) 
 
-dataSubQC
-```
-
-
-```{r}
-
-#make a data frame which aligns age and smfq score 
-#data is currently in wide format, need to convert to long
-
-data_wide <- dataSubQC
-
-data_long <- reshape(data_wide, idvar="Subject", direction="long", 
-             varying=list(age=c(15,16,17,18,19,20,21,22,23,24,25), score=c(4,5,6,7,8,9,10,11,12,13,14)),
-             v.names = c("age", "y"))
-
-df <- data_long
-
-```
-
-
-
-```{r}
 
 #making subjects unique and numeric
-df$Subject <- as.numeric(factor(df$Subject, 
-                  levels=unique(df$Subject)))
+dataSubQC$Subject <- as.numeric(factor(dataSubQC$Subject, 
+                  levels=unique(dataSubQC$Subject)))
 
-#should be 15,645 values, check
-summary(df)
+#recode sex as numeric binary
+dataSubQC <- transform(dataSubQC, Sex = as.numeric(Sex))
+
+#should be 15,645 and all numeric values, check (apart from ethnicity)
+summary(dataSubQC)
+```
+
+
+```{r}
+#data is currently in wide format, need to convert to long
+#aligning age and smfq score
+
+#currently in wide format
+data_wide <- dataSubQC
+
+#reshape with age and depression columns
+#no need to recode time points
+data_long <- reshape(data_wide, idvar="Subject", direction="long", 
+             varying=list(age=c(15,16,17,18,19,20,21,22,23,24,25), 
+                          score=c(4,5,6,7,8,9,10,11,12,13,14)),
+             v.names = c("age", "dep")) %>% 
+            rename(id = Subject, 
+                   sex = Sex, 
+                   ethnicity = Ethnicity)
+
+#save long df
+write_dta(data_long, "alspac_dep_long.dat")
+```
+
+```{r}
+##saving a wide df for mplus analysis 
+
+#columns start from 1 in r
+#remove ethnicity as not needed for mplus lcga
+dfwide <- data_wide %>%
+  subset(select = -c(3))
+
+#missing values as mplus needs numeric, make sure doesn't overlap with any real values or id's
+dfwide <- replace(dfwide, is.na(dfwide), -9999)
+
+#save to mplus data directory
+setwd("/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/gmm/gmm_alspac/mplus_data")
+write.table(dfwide, file = 'alspac_smfq_wide.txt', sep = "\t",
+            row.names = FALSE, col.names = FALSE)
+```
+
+```{r}
+#Another way of converting to long. Can ignore if initial df seems correct.
+#but time points will need recoding
+
+dflong <- reshape(dataSubQC, 
+                  direction = "long",
+                  varying = list(names(dataSubQC)[4:14]),
+                  v.names = "dep",
+                  idvar = "Subject", 
+                  timevar = "time", 
+                  times = c("mfq_t01", "mfq_t02", "mfq_t03", "mfq_t04", "mfq_t05",
+               "mfq_t06", "mfq_t07", "mfq_t08", "mfq_t09", "mfq_t10","mfq_t11")) %>% 
+                subset(selec = -c(3:14)) %>%
+                rename(id = Subject, sex = Sex) %>%
+                 #but time points will need recoding
+                mutate(`time` = dplyr::recode(`time`, 'mfq_t01' = "1",
+                                               "mfq_t02" = '2', 
+                                               "mfq_t03" = '3', "mfq_t04" = '4',
+                                               "mfq_t05" = '5', "mfq_t06" = '6', 
+                                               "mfq_t07" = '7', "mfq_t08" = '8', 
+                                               "mfq_t09" = '9', "mfq_t10" = '10',
+                                               "mfq_t11" = '11'))  %>%
+                #and transforming to numeric
+                transform(., time = as.numeric(time)) 
 
 ```
 
 
 ```{r}
-#mfinds class enumeration, build ML models using that number of classes, before that need to select features 
-"LCGA"
+"CLASS ENUMERATION USING LCGA, An extension of a fixed effects model (Wardenaar, 2022)"
+
+#tutorial is here https://psyarxiv.com/m58wx/
+#uses the hlme function in lcmm package
 
 library(lcmm)
 
+#to reproduce results
 set.seed(2002)
+
+#if want to run with only age<15 to compare with with ABCD data release 4.0'
+#df2 <- subset(df, age < 15)
+
 
 lcga1 <- hlme(y ~ time, subject = "Subject", ng = 1, data = df)
 lcga2 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
@@ -371,14 +429,17 @@ lcga6 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time,
 
 summarytable(lcga1, lcga2, lcga3, lcga4, lcga5, lcga6)
 
-#address class imbalance with SMOTE
+#later can address class imbalance with SMOTE if desired
 ```
 
 ```{r}
-Subject = array(lcga5$pprob$Subject)
+#merging df of class probabilites and classes from lcga analysis
+#choose lcga model with best fit from AIC, BIC, LMRLRT
+
+id = array(lcga5$pprob$Subject)
 class = array(lcga5$pprob$class)
-new_df = tibble(Subject,class)
-labelled_data <- merge(df, new_df, by = "Subject")
+new_df = tibble(id,class)
+labelled_data <- merge(df, new_df, by = "id")
 
 #re-ordering for legend plotting order
 #labelled_data$class <- factor(labelled_data$class, levels = c("2", "1", "3", "4", "5"))
@@ -388,49 +449,7 @@ ggplot(labelled_data, aes(x=age, y=y, color=as.factor(class)))  +
   labs(color='Trajectory', x="Age (years)", y='Depression (SMFQ score)') +
   scale_x_continuous(limits=c(9,25), breaks = seq(9,25, by = 2)) + 
   scale_color_brewer(labels = c("late-onset high", "persistent high", "adolescent peak", "non-depressed", "late-onset low"), palette = "Dark2")
-```
 
-```{r}
-'re-running with only first 4 time points'
-
-library(lcmm)
-
-'re-doing for age 9-14 to compare with ABCD data release 4.0'
-
-df2 <- subset(df, age < 15)
-
-
-set.seed(2002)
-
-lcga1 <- hlme(y ~ time, subject = "Subject", ng = 1, data = df2)
-lcga2 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
-                    subject = "Subject", ng = 2, data = df2, mixture = ~ time))
-lcga3 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
-                    subject = "Subject", ng = 3, data = df2, mixture = ~ time))
-lcga4 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
-                    subject = "Subject", ng = 4, data = df2, mixture = ~ time))
-lcga5 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
-                    subject = "Subject", ng = 5, data = df2, mixture = ~ time))
-
-summarytable(lcga1, lcga2, lcga3, lcga4)
-
-```
-
-
-```{r}
-Subject = array(lcga5$pprob$Subject)
-class = array(lcga5$pprob$class)
-new_df = tibble(Subject,class)
-labelled_data <- merge(df2, new_df, by = "Subject")
-
-#re-ordering for legend plotting order
-#labelled_data$class <- factor(labelled_data$class, levels = c("2", "1", "3", "4", "5"))
-
-ggplot(labelled_data, aes(x=age, y=y, color=as.factor(class)))  + 
-  geom_smooth() + 
-  labs(color='Trajectory', x="Age (years)", y='Depression (SMFQ score)') +
-  scale_x_continuous(limits=c(9,15), breaks = seq(9,15, by = 2)) + 
-  scale_color_brewer(labels = c("late-onset high", "persistent high", "adolescent peak", "non-depressed", "late-onset low"), palette = "Dark2")
 ```
 
 
