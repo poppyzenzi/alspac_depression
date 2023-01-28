@@ -253,7 +253,7 @@ imputed_df <- mice(smfqDf, m=5, maxit=50, meth='pmm', seed=500)
 summary(imputed_df)
 completed_df <- complete(imputed_df,1)
 
-xyplot(imputed_df,y ~ ID+time,pch=18,cex=1)
+#xyplot(imputed_df,y ~ ID+time,pch=18,cex=1)
 
 #problem here that we have two sets of columns, imputed and non imputed
 #dataSmfq <- cbind(dataSmfq, completed_df)
@@ -413,10 +413,10 @@ set.seed(2002)
 
 #if want to run with only age<15 to compare with with ABCD data release 4.0'
 #df2 <- subset(df, age < 15)
+#not complete need to make sure dep/y consistent and dataframe is correcrt
 
-
-lcga1 <- hlme(y ~ time, subject = "Subject", ng = 1, data = df)
-lcga2 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
+lcga1 <- hlme(dep ~ time, subject = "Subject", ng = 1, data = df)
+lcga2 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(dep ~ time, 
                     subject = "Subject", ng = 2, data = df, mixture = ~ time))
 lcga3 <- gridsearch(rep = 10, maxiter = 10, minit = lcga1, hlme(y ~ time, 
                     subject = "Subject", ng = 3, data = df, mixture = ~ time))
