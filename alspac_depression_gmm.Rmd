@@ -330,7 +330,7 @@ dataSubQC$Subject <- as.numeric(factor(dataSubQC$Subject,
 dataSubQC <- transform(dataSubQC, Sex = as.numeric(Sex))
 
 #should be 15,645 and all numeric values, check (apart from ethnicity)
-summary(dataSubQC)
+#summary(dataSubQC)
 ```
 
 
@@ -353,6 +353,16 @@ data_long <- reshape(data_wide, idvar="Subject", direction="long",
 
 #save long df
 write_dta(data_long, "alspac_dep_long.dat")
+
+
+#for python
+write_rds(data_long, file = 'alspac_dep_long.rds')
+
+
+#subset by age up to 14.5
+
+data_long %>% subset(data_long , age < 14.5)
+
 ```
 
 ```{r}
@@ -364,7 +374,12 @@ dfwide <- data_wide %>%
   subset(select = -c(3))
 
 #missing values as mplus needs numeric, make sure doesn't overlap with any real values or id's
+#only want this in the mplus df
 dfwide <- replace(dfwide, is.na(dfwide), -9999)
+
+#want to run the analysis only up to age 14.5
+dfwide <- transform(dfwide, time = as.numeric(time)) %>%
+          subset(., time < 5)
 
 #save to mplus data directory
 setwd("/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/gmm/gmm_alspac/mplus_data")

@@ -1,5 +1,12 @@
 #files to ignore
 
+alspac_dep_long.dat
+alspac_dep_long.rds
+alspac_predictors.Rmd
+
+/mplus_data/
+
+dataSmfq.dat
 
 .dataSmfq.csv
 /mplus_data/dataframes
