@@ -5,9 +5,12 @@ import pandas as pd
 import seaborn as sns
 import pyreadr
 import sklearn
+from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.linear_model import LogisticRegression
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn import tree
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score
 import scipy.stats as stats
 import statsmodels.api as sm
@@ -46,9 +49,11 @@ alspac = pd.read_stata("/Volumes/cmvm/scs/groups/ALSPAC/data/B3421_Whalley_04Nov
 als = alspac
 
 # make alspac have same ids as originally coded in R
+als['cidB3421'] = als['cidB3421'].astype(int)
+als['IID'] = als['cidB3421'].astype(str).str.cat(als['qlet'], sep='')
 als['id'] = als['cidB3421'].astype(str) + als['qlet']
 als = als.drop(['cidB3421', 'qlet'], axis=1)
-als['id'] = pd.factorize(als['id'])[0]  # makes ids unique and numeric, should be 15,645
+als['id'] = pd.factorize(als['id'])[0] + 1  # makes ids unique and numeric, should be 15,645
 als = als.rename(columns={'kz021':'sex', 'c804':'ethnicity'}) # rename some cols
 
 # append class and id data to the whole alspac dataframe
@@ -60,17 +65,28 @@ als = als.rename(columns={'kz021':'sex', 'c804':'ethnicity'}) # renaming some co
 als['id'].nunique() # again check 15,645 unique id's
 column_to_move = als.pop("id") # moving id to first col
 als.insert(0, "id", column_to_move) # insert column with insert(location, column_name, column_value)
+
+# ================= appending PRS scores ==========================
+
+prs_mdd = pd.read_csv('/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/prs/prs_alspac_OUT/abcd_mdd_prs_230302.best', sep='\s+')
+prs_mdd = prs_mdd[['IID', 'PRS']]
+als2 = pd.merge(als, prs_mdd, on='IID', how='left')
+
+# ================== appending class data =========================
 # make ids same object type - both integers
 alspac_4k['id'] = alspac_4k['id'].astype(int) # only id and class
 # now merge by id .. should be 8787
-df = pd.merge(alspac_4k, als, on=["id"])
+df = pd.merge(alspac_4k, als2, on=["id"])
 
 # select and clean variables
 dem_vars = ['id', 'class']
-c_vars = ['ku707b', 'kw6602b', 'f8se126']
+c_vars = ['ku707b', 'kw6602b', 'f8se126', 'PRS']
 b_vars = ['sex', 'kv8618', 'kv8617', 'tb8618', 'tb8619', 'f8fp470', 'AT5_n']
 all_vars = dem_vars + c_vars + b_vars
 X_vars = b_vars + c_vars
+
+# ==========================================================================================
+# ================================= MAKING DESIGN MATRIX ===================================
 
 df = df[all_vars] # select only vars we want
 
@@ -78,6 +94,7 @@ df = df[all_vars] # select only vars we want
 for c_var in df[c_vars]:
     df[c_var] = pd.to_numeric(df[c_var], errors='coerce') # this makes cont vars numeric and replaces string values with NaN
 df[c_vars] = (df[c_vars] - df[c_vars].min()) / (df[c_vars].max() - df[c_vars].min()) # normalising [0,1]
+
 
 # binary vars restrict to [0,1,NaN]
 df['sex'] = df['sex'].replace(['Female','Male'], [1,0]) # first recode sex
@@ -92,6 +109,33 @@ for c_var in c_vars:
 
 # all variables are now in df[X_vars]
 
+
+# single var mnLOGREG / no train test split. simple regression
+
+# Filter dataframe to remove null values in both 'PRS' and 'class' columns
+filtered_df = df.dropna(subset=['PRS', 'class'])
+
+# Create x and y arrays from the filtered dataframe
+x = np.array(filtered_df['PRS']).reshape(-1, 1)
+y = np.array(filtered_df['class'])
+
+clf = LogisticRegression(multi_class='multinomial', solver='lbfgs')
+clf.fit(x, y)
+
+print("Coefficients: ", clf.coef_)
+print("Intercepts: ", clf.intercept_)
+print("Odds Ratios: ", np.exp(clf.coef_))
+print("Classes: ", clf.classes_)
+
+
+
+
+
+# ===========================================
+# ===========================================
+
+
+
 # mulitnom logistic regression
 # Separate input and target variables, split
 X = df[X_vars].dropna()
@@ -105,41 +149,3 @@ y_pred = logreg.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
 print('Accuracy: {:.2f}'.format(accuracy))
 
-
-#first use anthropomorphic data to assign unique numeric ID's
-anth = pyreadr.read_r('/Volumes/igmm/GenScotDepression/data/abcd/release4.0/iii.data/Physical_Health/abcd_ant01.rds')
-anth = anth[None] # let's check what objects we have: there is only None
-anth = anth[['src_subject_id','eventname', 'interview_age', 'sex']]
-anth.columns = ['id','time','age','sex']
-anth['time'] = anth['time'].replace(['baseline_year_1_arm_1','1_year_follow_up_y_arm_1',
-                                 '2_year_follow_up_y_arm_1','3_year_follow_up_y_arm_1'],
-                                [0,1,2,3])
-anth['sex'] = anth['sex'].replace(['F','M'], [1,0])
-anth['age'] = anth['age'].div(12)
-anth['id'].nunique() #check 11,876
-anth['unique_id'] = anth.id.map(hash)
-
-#=============CBCL data===============
-df = pyreadr.read_r('/Volumes/igmm/GenScotDepression/data/abcd/release4.0/iii.data/Mental_Health/abcd_cbcls01.rds')
-df = df[None]
-df = df[['src_subject_id','eventname','cbcl_scr_dsm5_depress_r']]
-df.columns = ['id','time','dep']
-df['time'] = df['time'].replace(['baseline_year_1_arm_1', '1_year_follow_up_y_arm_1',
-                                     '2_year_follow_up_y_arm_1', '3_year_follow_up_y_arm_1'],
-                                    [0, 1, 2, 3])
-df['id'].nunique() #check 11,876. Should be same but we merge with anth to be certain
-
-
-#merging into long format df
-data = pd.merge(anth, df, on=["id","time"])
-
-#==========now convert data to wide for mplus=============
-#first keep only relevant cols
-data = data[['id','unique_id','time','dep']]
-data_wide = pd.pivot(data, index=['id','unique_id'], columns='time', values='dep') #should have 11,876 rows
-data_wide[[0,1,2,3]] = data_wide[[0,1,2,3]].fillna('-9999') #replace NaNs with -9999 for mplus
-filepath = Path('/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/gmm/gmm_abcd/mplus_data/abcd_cbcl_wide_python.txt')
-filepath.parent.mkdir(parents=True, exist_ok=True)
-data_wide.to_csv(filepath, header=False)  #save wide data for mplus in gmm_abcd directory
-
-#=================================================
