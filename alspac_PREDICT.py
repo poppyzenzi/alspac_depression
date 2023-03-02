@@ -128,12 +128,8 @@ print("Odds Ratios: ", np.exp(clf.coef_))
 print("Classes: ", clf.classes_)
 
 
-
-
-
 # ===========================================
 # ===========================================
-
 
 
 # mulitnom logistic regression
