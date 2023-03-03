@@ -33,9 +33,8 @@ df_wide.to_csv(filepath, header=False, sep='\t')  #save wide data for mplus in g
 
 # =================================================
 # make new df with id, unique id, Xvars and yclass
-alspac_4k = pd.read_table('/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/'
-                        'Edinburgh/gmm/gmm_alspac/mplus_data/4_class_alspac_test.txt', delim_whitespace=True, header=None)  # this is just test will need to change
-alspac_4k.columns = ['y0','y1','y2','y3','id','v1','v2','v3','v4','v5','v6','v7','v8','v9','v10','class']
+alspac_4k = pd.read_table('/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/gmm/gmm_alspac/mplus_data/4k_alspac_smfq.txt', delim_whitespace=True, header=None)  # this is just test will need to change
+alspac_4k.columns = ['y0','y1','y2','y3','v1','v2','v3','v4','v5','v6','v7','v8','v9','v10','class','id']
 alspac_4k = alspac_4k[['id','class']] #subsetting
 alspac_4k.replace('*', np.nan) #replace missing
 # merge class with smfq data -
@@ -46,7 +45,7 @@ data = data[data["time"] < 5]
 # ===================== EXTRACTING VARS ====================
 
 alspac = pd.read_stata("/Volumes/cmvm/scs/groups/ALSPAC/data/B3421_Whalley_04Nov2021.dta")
-als = alspac
+als = alspac # call again if need clean
 
 # make alspac have same ids as originally coded in R
 als['cidB3421'] = als['cidB3421'].astype(int)
@@ -55,27 +54,24 @@ als['id'] = als['cidB3421'].astype(str) + als['qlet']
 als = als.drop(['cidB3421', 'qlet'], axis=1)
 als['id'] = pd.factorize(als['id'])[0] + 1  # makes ids unique and numeric, should be 15,645
 als = als.rename(columns={'kz021':'sex', 'c804':'ethnicity'}) # rename some cols
-
-# append class and id data to the whole alspac dataframe
-# alspac_4k is a df of ids and classes (8787 x 2)
-# merge als with alspac_4k by id [but need to make sure these IDs are the same
-
-als = als.rename(columns={'kz021':'sex', 'c804':'ethnicity'}) # renaming some cols
-
-als['id'].nunique() # again check 15,645 unique id's
 column_to_move = als.pop("id") # moving id to first col
 als.insert(0, "id", column_to_move) # insert column with insert(location, column_name, column_value)
 
-# ================= appending PRS scores ==========================
 
+# ================= appending PRS scores ==========================
 prs_mdd = pd.read_csv('/Users/poppygrimes/Library/CloudStorage/OneDrive-UniversityofEdinburgh/Edinburgh/prs/prs_alspac_OUT/abcd_mdd_prs_230302.best', sep='\s+')
 prs_mdd = prs_mdd[['IID', 'PRS']]
 als2 = pd.merge(als, prs_mdd, on='IID', how='left')
 
-# ================== appending class data =========================
+
+# ===============================================================================
+# ================== appending class data =======================================
+
+
 # make ids same object type - both integers
+# alspac_4k is a df of ids and classes (8787 x 2)
+# merge als with alspac_4k by id [but need to make sure these IDs are the same
 alspac_4k['id'] = alspac_4k['id'].astype(int) # only id and class
-# now merge by id .. should be 8787
 df = pd.merge(alspac_4k, als2, on=["id"])
 
 # select and clean variables
@@ -101,16 +97,33 @@ df['sex'] = df['sex'].replace(['Female','Male'], [1,0]) # first recode sex
 df[b_vars] = df[b_vars].mask(~df[b_vars].isin([0,1]))
 
 # check if features are between 0 and 1 or NaN
-for c_var in c_vars:
-    if df[c_var].dropna().between(0, 1).all():
-        print('ok')
+for var in X_vars:
+    if df[var].notnull().all():
+        if (df[var] >= 0) & (df[var] <= 1).all():
+            pass
+        else:
+            print(f"Some non-NaN values in {feature} are not between 0 and 1.")
     else:
-        print(f"Some non-NaN values in {c_var} are not between 0 and 1.")
+        print(f"{var} contains NaN values.")
 
 # all variables are now in df[X_vars]
 
+# testing PRS association
+# ========================== using statsmodels =====================================
 
-# single var mnLOGREG / no train test split. simple regression
+# Filter out rows with missing values in 'prs_mdd' and 'class' columns
+df2 = df.dropna(subset=['PRS', 'class'])
+df2.loc[:, 'class'] = df2['class'].replace(3.0, 0.0) # replace with 0 for ref level
+x = df2['PRS']
+y = df2['class']
+X = sm.add_constant(x)
+model = sm.MNLogit(y, X)
+result = model.fit()
+print(result.summary())
+
+
+# ========================== using scikit =====================================
+
 
 # Filter dataframe to remove null values in both 'PRS' and 'class' columns
 filtered_df = df.dropna(subset=['PRS', 'class'])
@@ -128,18 +141,16 @@ print("Odds Ratios: ", np.exp(clf.coef_))
 print("Classes: ", clf.classes_)
 
 
-# ===========================================
-# ===========================================
-
+# ======================================================================================
+# ======================================================================================
 
 # mulitnom logistic regression
 # Separate input and target variables, split
 X = df[X_vars].dropna()
-x = np.array(df['sex'].dropna()).reshape(-1,1) # test with sex
 y = np.array(df['class'])
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 logreg = LogisticRegression(multi_class='multinomial', solver='lbfgs')
-logreg.fit(x, y)
+logreg.fit(X, y)
 y_pred = logreg.predict(X_test)
 # Calculate the accuracy of the model
 accuracy = accuracy_score(y_test, y_pred)
